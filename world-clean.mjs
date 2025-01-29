@@ -1,21 +1,28 @@
+import 'dotenv-flow/config'
 import fs from 'fs-extra'
 import path from 'path'
 import Knex from 'knex'
 import moment from 'moment'
 import { fileURLToPath } from 'url'
 
+const DRY_RUN = false
+
+const world = process.env.WORLD || 'world'
+
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const rootDir = path.join(__dirname, './')
-const worldDir = path.join(rootDir, 'world')
-const assetsDir = path.join(rootDir, 'world/assets')
+const worldDir = path.join(rootDir, world)
+const assetsDir = path.join(worldDir, '/assets')
 
 const db = Knex({
   client: 'better-sqlite3',
   connection: {
-    filename: './world/db.sqlite',
+    filename: `./${world}/db.sqlite`,
   },
   useNullAsDefault: true,
 })
+
+// TODO: run any missing migrations first?
 
 let blueprints = new Set()
 const blueprintRows = await db('blueprints')
@@ -29,6 +36,14 @@ const entityRows = await db('entities')
 for (const row of entityRows) {
   const entity = JSON.parse(row.data)
   entities.push(entity)
+}
+
+const vrms = new Set()
+const userRows = await db('users').select('avatar')
+for (const user of userRows) {
+  if (!user.avatar) continue
+  const avatar = user.avatar.replace('asset://', '')
+  vrms.add(avatar)
 }
 
 const fileAssets = new Set()
@@ -61,13 +76,15 @@ for (const blueprint of blueprints) {
 console.log(`deleting ${blueprintsToDelete.length} blueprints`)
 for (const blueprint of blueprintsToDelete) {
   blueprints.delete(blueprint)
-  await db('blueprints').where('id', blueprint.id).delete()
+  if (!DRY_RUN) {
+    await db('blueprints').where('id', blueprint.id).delete()
+  }
   console.log('delete blueprint:', blueprint.id)
 }
 
 /**
  * Phase 2:
- * Remove all asset files that no longer have a blueprint.
+ * Remove all asset files not referenced by a blueprint or used as an avatar.
  * The world no longer uses/needs them.
  *
  */
@@ -84,17 +101,28 @@ for (const blueprint of blueprints) {
     blueprintAssets.add(asset)
     // console.log(asset)
   }
+  for (const key in blueprint.config) {
+    const url = blueprint.config[key]?.url
+    if (!url) continue
+    const asset = url.replace('asset://', '')
+    blueprintAssets.add(asset)
+    // console.log(asset)
+  }
 }
 const filesToDelete = []
 for (const fileAsset of fileAssets) {
-  if (!blueprintAssets.has(fileAsset)) {
+  const isUsedByBlueprint = blueprintAssets.has(fileAsset)
+  const isUsedByUser = vrms.has(fileAsset)
+  if (!isUsedByBlueprint && !isUsedByUser) {
     filesToDelete.push(fileAsset)
   }
 }
 console.log(`deleting ${filesToDelete.length} assets`)
 for (const fileAsset of filesToDelete) {
   const fullPath = path.join(assetsDir, fileAsset)
-  fs.removeSync(fullPath)
+  if (!DRY_RUN) {
+    fs.removeSync(fullPath)
+  }
   console.log('delete asset:', fileAsset)
 }
 

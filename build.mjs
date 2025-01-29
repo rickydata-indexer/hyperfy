@@ -22,14 +22,6 @@ const clientHtmlSrc = path.join(rootDir, 'src/client/public/index.html')
 const clientHtmlDest = path.join(rootDir, 'build/public/index.html')
 
 {
-  // get all public app env variables
-  const publicEnvs = {}
-  for (const key in process.env) {
-    if (key.startsWith('PUBLIC_')) {
-      const value = process.env[key]
-      publicEnvs[`process.env.${key}`] = JSON.stringify(value)
-    }
-  }
   const clientCtx = await esbuild.context({
     entryPoints: ['src/client/index.js', 'src/client/components/WalletProvider.js'],
     entryNames: '/[name]-[hash]',
@@ -45,9 +37,6 @@ const clientHtmlDest = path.join(rootDir, 'build/public/index.html')
     jsxImportSource: '@firebolt-dev/jsx',
     define: {
       // 'process.env.NODE_ENV': '"development"',
-      'process.env.CLIENT': 'true',
-      'process.env.SERVER': 'false',
-      ...publicEnvs,
     },
     loader: {
       '.js': 'jsx',
@@ -69,7 +58,7 @@ const clientHtmlDest = path.join(rootDir, 'build/public/index.html')
             // inject into html and copy over
             let htmlContent = await fs.readFile(clientHtmlSrc, 'utf-8')
             htmlContent = htmlContent.replace('{jsFile}', jsFile)
-            htmlContent = htmlContent.replace('{timestamp}', Date.now())
+            htmlContent = htmlContent.replaceAll('{buildId}', Date.now())
             await fs.writeFile(clientHtmlDest, htmlContent)
           })
         },

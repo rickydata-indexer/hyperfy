@@ -1,5 +1,6 @@
 import { isString } from 'lodash-es'
 import * as THREE from '../extras/three'
+import moment from 'moment'
 
 import { Entity } from './Entity'
 import { glbToNodes } from '../extras/glbToNodes'
@@ -7,9 +8,10 @@ import { createNode } from '../extras/createNode'
 import { LerpVector3 } from '../extras/LerpVector3'
 import { LerpQuaternion } from '../extras/LerpQuaternion'
 import { ControlPriorities } from '../extras/ControlPriorities'
+import { getRef } from '../nodes/Node'
 
 const hotEventNames = ['fixedUpdate', 'update', 'lateUpdate']
-const internalEvents = ['fixedUpdate', 'updated', 'lateUpdate']
+const internalEvents = ['fixedUpdate', 'updated', 'lateUpdate', 'enter', 'leave', 'chat']
 
 const Modes = {
   ACTIVE: 'active',
@@ -23,7 +25,6 @@ export class App extends Entity {
     super(world, data, local)
     this.isApp = true
     this.n = 0
-    this.nodes = new Map()
     this.worldNodes = new Set()
     this.hotEvents = 0
     this.worldListeners = new Map()
@@ -32,13 +33,8 @@ export class App extends Entity {
     this.build()
   }
 
-  createNode(data) {
-    const node = createNode(data)
-    if (this.nodes.has(node.id)) {
-      console.error('node with id already exists: ', node.id)
-      return
-    }
-    this.nodes.set(node.id, node)
+  createNode(name) {
+    const node = createNode({ name })
     return node
   }
 
@@ -50,8 +46,13 @@ export class App extends Entity {
     // fetch script (if any)
     let script
     if (blueprint.script) {
-      script = this.world.loader.get('script', blueprint.script)
-      if (!script) script = await this.world.loader.load('script', blueprint.script)
+      try {
+        script = this.world.loader.get('script', blueprint.script)
+        if (!script) script = await this.world.loader.load('script', blueprint.script)
+      } catch (err) {
+        console.error(err)
+        crashed = true
+      }
     }
     let root
     // if someone else is uploading glb, show a loading indicator
@@ -65,8 +66,9 @@ export class App extends Entity {
     // otherwise we can load the actual glb
     else {
       try {
-        let glb = this.world.loader.get('glb', blueprint.model)
-        if (!glb) glb = await this.world.loader.load('glb', blueprint.model)
+        const type = blueprint.model.endsWith('vrm') ? 'avatar' : 'model'
+        let glb = this.world.loader.get(type, blueprint.model)
+        if (!glb) glb = await this.world.loader.load(type, blueprint.model)
         root = glb.toNodes()
       } catch (err) {
         console.error(err)
@@ -75,8 +77,8 @@ export class App extends Entity {
     }
     // if script crashed (or failed to load model), show crash-block
     if (crashed || !root) {
-      let glb = this.world.loader.get('glb', 'asset://crash-block.glb')
-      if (!glb) glb = await this.world.loader.load('glb', 'asset://crash-block.glb')
+      let glb = this.world.loader.get('model', 'asset://crash-block.glb')
+      if (!glb) glb = await this.world.loader.load('model', 'asset://crash-block.glb')
       root = glb.toNodes()
     }
     // if a new build happened while we were fetching, stop here
@@ -92,17 +94,14 @@ export class App extends Entity {
     this.root = root
     this.root.position.fromArray(this.data.position)
     this.root.quaternion.fromArray(this.data.quaternion)
-    // collect all nodes
-    this.root.traverse(node => {
-      this.nodes.set(node.id, node)
-    })
     // activate
     this.root.activate({ world: this.world, entity: this, physics: !this.data.mover })
     // execute script
     if (this.mode === Modes.ACTIVE && script && !crashed) {
+      this.abortController = new AbortController()
       this.script = script
       try {
-        this.script.exec(this.getWorldProxy(), this.getAppProxy())
+        this.script.exec(this.getWorldProxy(), this.getAppProxy(), this.fetch)
       } catch (err) {
         console.error('script crashed')
         console.error(err)
@@ -129,7 +128,7 @@ export class App extends Entity {
       const event = this.eventQueue[0]
       if (event.version > this.blueprint.version) break // ignore future versions
       this.eventQueue.shift()
-      this.emit(event.name, event.data, event.clientId)
+      this.emit(event.name, event.data, event.networkId)
     }
     // finished!
     this.building = false
@@ -142,7 +141,6 @@ export class App extends Entity {
     for (const node of this.worldNodes) {
       node.deactivate()
     }
-    this.nodes.clear()
     this.worldNodes.clear()
     // clear script event listeners
     this.clearEventListeners()
@@ -154,6 +152,9 @@ export class App extends Entity {
     }
     // cancel update tracking
     this.world.setHot(this, false)
+    // abort fetch's etc
+    this.abortController?.abort()
+    this.abortController = null
   }
 
   fixedUpdate(delta) {
@@ -299,8 +300,16 @@ export class App extends Entity {
   }
 
   destroy(local) {
+    if (this.dead) return
+    this.dead = true
+
     this.unbuild()
-    super.destroy(local)
+
+    this.world.entities.remove(this.data.id)
+    // if removed locally we need to broadcast to server/clients
+    if (local) {
+      this.world.network.send('entityRemoved', this.data.id)
+    }
   }
 
   on(name, callback) {
@@ -350,11 +359,33 @@ export class App extends Entity {
     this.worldListeners.clear()
   }
 
-  onEvent(version, name, data, socketId) {
+  onEvent(version, name, data, networkId) {
     if (this.building || version > this.blueprint.version) {
-      this.eventQueue.push({ version, name, data, socketId })
+      this.eventQueue.push({ version, name, data, networkId })
     } else {
-      this.emit(name, data, socketId)
+      this.emit(name, data, networkId)
+    }
+  }
+
+  fetch = async (url, options = {}) => {
+    try {
+      const resp = await fetch(url, {
+        ...options,
+        signal: this.abortController.signal,
+      })
+      const secureResp = {
+        ok: resp.ok,
+        status: resp.status,
+        statusText: resp.statusText,
+        headers: Object.fromEntries(resp.headers.entries()),
+        json: async () => await resp.json(),
+        text: async () => await resp.text(),
+        blob: async () => await resp.blob(),
+      }
+      return secureResp
+    } catch (err) {
+      console.error(err)
+      // this.crash()
     }
   }
 
@@ -372,7 +403,7 @@ export class App extends Entity {
         return world.network.isClient
       },
       add(pNode) {
-        const node = entity.nodes.get(pNode.id)
+        const node = getRef(pNode)
         if (!node) return
         if (node.parent) {
           node.parent.remove(node)
@@ -381,7 +412,7 @@ export class App extends Entity {
         node.activate({ world, entity, physics: true })
       },
       remove(pNode) {
-        const node = entity.nodes.get(pNode.id)
+        const node = getRef(pNode)
         if (!node) return
         if (node.parent) return // its not in world
         if (!entity.worldNodes.has(node)) return
@@ -389,7 +420,7 @@ export class App extends Entity {
         node.deactivate()
       },
       attach(pNode) {
-        const node = entity.nodes.get(pNode.id)
+        const node = getRef(pNode)
         if (!node) return
         const parent = node.parent
         if (!parent) return
@@ -405,13 +436,35 @@ export class App extends Entity {
       off(name, callback) {
         entity.offWorldEvent(name, callback)
       },
+      emit(name, data) {
+        if (internalEvents.includes(name)) {
+          return console.error(`apps cannot emit internal events (${name})`)
+        }
+        warn('world.emit() is deprecated, use app.emit() instead')
+        world.events.emit(name, data)
+      },
+      getTime() {
+        return world.network.getTime()
+      },
+      getTimestamp(format) {
+        if (!format) return moment().toISOString()
+        return moment().format(format)
+      },
+      chat(msg, broadcast) {
+        if (!msg) return
+        world.chat.add(msg, broadcast)
+      },
+      getPlayer(playerId) {
+        const player = world.entities.getPlayer(playerId || world.entities.player?.data.id)
+        return player?.getProxy()
+      },
     }
   }
 
   getAppProxy() {
     const entity = this
     const world = this.world
-    return {
+    let proxy = {
       get instanceId() {
         return entity.data.id
       },
@@ -435,11 +488,17 @@ export class App extends Entity {
       },
       send(name, data, ignoreSocketId) {
         if (internalEvents.includes(name)) {
-          return console.error(`apps cannot emit internal events (${name})`)
+          return console.error(`apps cannot send internal events (${name})`)
         }
         // NOTE: on the client ignoreSocketId is a no-op because it can only send events to the server
         const event = [entity.data.id, entity.blueprint.version, name, data]
         world.network.send('entityEvent', event, ignoreSocketId)
+      },
+      emit(name, data) {
+        if (internalEvents.includes(name)) {
+          return console.error(`apps cannot emit internal events (${name})`)
+        }
+        world.events.emit(name, data)
       },
       get(id) {
         const node = entity.root.get(id)
@@ -447,14 +506,8 @@ export class App extends Entity {
         return node.getProxy()
       },
       create(name) {
-        if (isString(name)) {
-          const node = entity.createNode({ name })
-          return node.getProxy()
-        } else {
-          console.warn('TODO: migrate script to create(String)')
-          const node = entity.createNode(name)
-          return node.getProxy()
-        }
+        const node = entity.createNode(name)
+        return node.getProxy()
       },
       control(options) {
         // TODO: only allow on user interaction
@@ -466,7 +519,22 @@ export class App extends Entity {
         })
         return entity.control
       },
-      ...this.root.getProxy(),
+      configure(fn) {
+        entity.getConfig = fn
+        entity.onConfigure?.(fn)
+      },
+      get config() {
+        return entity.blueprint.config
+      },
     }
+    proxy = Object.defineProperties(proxy, Object.getOwnPropertyDescriptors(this.root.getProxy())) // inherit root Node properties
+    return proxy
   }
+}
+
+const warned = new Set()
+function warn(str) {
+  if (warned.has(str)) return
+  console.warn(str)
+  warned.add(str)
 }

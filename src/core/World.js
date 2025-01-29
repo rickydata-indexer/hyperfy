@@ -13,7 +13,7 @@ export class World extends EventEmitter {
   constructor() {
     super()
 
-    this.maxDeltaTime = 1 / 3 // 0.33333
+    this.maxDeltaTime = 1 / 30 // 0.33333
     this.fixedDeltaTime = 1 / 50 // 0.01666
     this.frame = 0
     this.time = 0
@@ -154,6 +154,9 @@ export class World extends EventEmitter {
   }
 
   postLateUpdate(delta) {
+    for (const item of this.hot) {
+      item.postLateUpdate?.(delta)
+    }
     for (const system of this.systems) {
       system.postLateUpdate(delta)
     }
@@ -171,7 +174,7 @@ export class World extends EventEmitter {
     }
   }
 
-  setupMaterial(material) {
+  setupMaterial = material => {
     this.environment?.csm.setupMaterial(material)
   }
 

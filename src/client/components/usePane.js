@@ -1,49 +1,30 @@
+import { debounce } from 'lodash-es'
 import { useEffect } from 'react'
+import { storage } from '../../core/storage'
 
-const STORAGE_KEY = 'pane_configs'
-const WHITELISTED_IDS = ['code'] // Add your whitelisted IDs here
-let configs = {}
-let count = 0
+const STORAGE_KEY = 'panes'
+
+let info = storage.get(STORAGE_KEY)
+
+if (!info || info.v !== 1) {
+  info = {
+    v: 1,
+    count: 0,
+    configs: {
+      // [id]: { x, y, width, height }
+    },
+  }
+}
+
+const persist = debounce(() => storage.set(STORAGE_KEY, info), 300)
+
 let layer = 0
 
-// Load saved configs from localStorage only for whitelisted IDs
-try {
-  const savedConfigs = localStorage.getItem(STORAGE_KEY)
-  if (savedConfigs) {
-    const parsedConfigs = JSON.parse(savedConfigs)
-    // Only load whitelisted configs
-    configs = Object.keys(parsedConfigs)
-      .filter(key => WHITELISTED_IDS.includes(key))
-      .reduce((obj, key) => {
-        obj[key] = parsedConfigs[key]
-        return obj
-      }, {})
-  }
-} catch (error) {
-  console.error('Error loading pane configs:', error)
-}
-
-// Save configs to localStorage (only whitelisted)
-const saveConfigs = () => {
-  try {
-    // Only save whitelisted configs
-    const configsToSave = Object.keys(configs)
-      .filter(key => WHITELISTED_IDS.includes(key))
-      .reduce((obj, key) => {
-        obj[key] = configs[key]
-        return obj
-      }, {})
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(configsToSave))
-  } catch (error) {
-    console.error('Error saving pane configs:', error)
-  }
-}
-
-export function usePane(id, paneRef, headRef) {
+export function usePane(id, paneRef, headRef, resizable = false) {
   useEffect(() => {
-    let config = configs[id]
+    let config = info.configs[id]
     if (!config) {
-      count++
+      const count = ++info.count
       config = {
         y: count * 20,
         x: count * 20,
@@ -51,18 +32,30 @@ export function usePane(id, paneRef, headRef) {
         height: paneRef.current.offsetHeight,
         layer: 0,
       }
-      configs[id] = config
-      if (WHITELISTED_IDS.includes(id)) {
-        saveConfigs()
-      }
+      info.configs[id] = config
+      persist()
+    }
+
+    if (!resizable) {
+      config.width = paneRef.current.offsetWidth
+      config.height = paneRef.current.offsetHeight
     }
 
     layer++
     const pane = paneRef.current
+
+    // ensure pane is within screen bounds so it can't get lost
+    const maxX = window.innerWidth - config.width
+    const maxY = window.innerHeight - config.height
+    config.x = Math.min(Math.max(0, config.x), maxX)
+    config.y = Math.min(Math.max(0, config.y), maxY)
+
     pane.style.top = `${config.y}px`
     pane.style.left = `${config.x}px`
-    pane.style.width = `${config.width}px`
-    pane.style.height = `${config.height}px`
+    if (resizable) {
+      pane.style.width = `${config.width}px`
+      pane.style.height = `${config.height}px`
+    }
     pane.style.zIndex = `${layer}`
 
     const head = headRef.current
@@ -79,38 +72,23 @@ export function usePane(id, paneRef, headRef) {
 
     const onPointerMove = e => {
       if (!moving) return
-
-      // Calculate new position
-      const newX = config.x + e.movementX
-      const newY = config.y + e.movementY
-
-      // Get window dimensions
-      const maxX = window.innerWidth - pane.offsetWidth
-      const maxY = window.innerHeight - pane.offsetHeight
-
-      // Clamp coordinates to keep window visible
-      config.x = Math.min(Math.max(0, newX), maxX)
-      config.y = Math.min(Math.max(0, newY), maxY)
-
+      config.x += e.movementX
+      config.y += e.movementY
       pane.style.top = `${config.y}px`
       pane.style.left = `${config.x}px`
-      if (WHITELISTED_IDS.includes(id)) {
-        saveConfigs()
-      }
+      persist()
     }
 
     const onPointerUp = e => {
       moving = false
     }
 
-    const onResize = new ResizeObserver(entries => {
+    const resizer = new ResizeObserver(entries => {
       const entry = entries[0]
       if (entry) {
         config.width = entry.contentRect.width
         config.height = entry.contentRect.height
-        if (WHITELISTED_IDS.includes(id)) {
-          saveConfigs()
-        }
+        persist()
       }
     })
 
@@ -118,14 +96,14 @@ export function usePane(id, paneRef, headRef) {
     pane.addEventListener('pointerdown', onPanePointerDown)
     window.addEventListener('pointermove', onPointerMove)
     window.addEventListener('pointerup', onPointerUp)
-    onResize.observe(pane)
+    resizer.observe(pane)
 
     return () => {
       head.removeEventListener('pointerdown', onHeadPointerDown)
       pane.removeEventListener('pointerdown', onPanePointerDown)
       window.removeEventListener('pointermove', onPointerMove)
       window.removeEventListener('pointerup', onPointerUp)
-      onResize.disconnect()
+      resizer.disconnect()
     }
   }, [])
 }

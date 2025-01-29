@@ -14,7 +14,7 @@ const DIST_MAX = 60 // >= 30m = max rate
 
 const material = new THREE.MeshBasicMaterial()
 
-export function createVRMFactory(glb, world) {
+export function createVRMFactory(glb, setupMaterial) {
   // we'll update matrix ourselves
   glb.scene.matrixAutoUpdate = false
   glb.scene.matrixWorldAutoUpdate = false
@@ -58,7 +58,7 @@ export function createVRMFactory(glb, world) {
       // fix csm shadow banding
       node.material.shadowSide = THREE.BackSide
       // csm material setup
-      world.setupMaterial(node.material)
+      setupMaterial(node.material)
     }
   })
   // remove root bone from scene
@@ -95,7 +95,7 @@ export function createVRMFactory(glb, world) {
     // ...
   }
 
-  return (matrix, node) => {
+  return (matrix, hooks, node) => {
     const vrm = cloneGLB(glb)
     const tvrm = vrm.userData.vrm
     const skinnedMeshes = getSkinnedMeshes(vrm.scene)
@@ -105,7 +105,7 @@ export function createVRMFactory(glb, world) {
     rootBone.updateMatrixWorld(true)
     vrm.scene.matrix = matrix // synced!
     vrm.scene.matrixWorld = matrix // synced!
-    world.stage.scene.add(vrm.scene)
+    hooks.scene.add(vrm.scene)
 
     const getEntity = () => node?.ctx.entity
 
@@ -117,7 +117,7 @@ export function createVRMFactory(glb, world) {
       material,
       getEntity,
     }
-    world.stage.octree.insert(sItem)
+    hooks.octree?.insert(sItem)
 
     // debug capsule
     // const foo = new THREE.Mesh(
@@ -147,7 +147,7 @@ export function createVRMFactory(glb, world) {
       rateCheckedAt += delta
       if (rateCheckedAt >= DIST_CHECK_RATE) {
         const vrmPos = v1.setFromMatrixPosition(vrm.scene.matrix)
-        const camPos = v2.setFromMatrixPosition(world.camera.matrixWorld) // prettier-ignore
+        const camPos = v2.setFromMatrixPosition(hooks.camera.matrixWorld) // prettier-ignore
         const distance = vrmPos.distanceTo(camPos)
         const clampedDistance = Math.max(distance - DIST_MIN, 0)
         const normalizedDistance = Math.min(clampedDistance / (DIST_MAX - DIST_MIN), 1) // prettier-ignore
@@ -195,7 +195,7 @@ export function createVRMFactory(glb, world) {
         }
         emotes[url] = emote
         currentEmote = emote
-        world.loader.load('emote', url).then(emo => {
+        hooks.loader.load('emote', url).then(emo => {
           const clip = emo.toClip({
             rootToHips,
             version,
@@ -232,18 +232,19 @@ export function createVRMFactory(glb, world) {
     }
 
     return {
+      raw: vrm,
       height,
       applyBoneMatrixWorld,
       setEmote,
       update,
       move(_matrix) {
         matrix.copy(_matrix)
-        world.stage.octree.move(sItem)
+        hooks.octree?.move(sItem)
       },
       destroy() {
-        world.stage.scene.remove(vrm.scene)
+        hooks.scene.remove(vrm.scene)
         // world.updater.remove(update)
-        world.stage.octree.remove(sItem)
+        hooks.octree?.remove(sItem)
       },
     }
   }

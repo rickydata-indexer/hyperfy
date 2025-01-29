@@ -19,8 +19,8 @@ import { hashFile } from '../core/utils-server'
 import { getDB } from './db'
 
 const rootDir = path.join(__dirname, '../')
-const worldDir = path.join(rootDir, 'world')
-const assetsDir = path.join(rootDir, 'world/assets')
+const worldDir = path.join(rootDir, process.env.WORLD)
+const assetsDir = path.join(worldDir, '/assets')
 const port = process.env.PORT
 
 await fs.ensureDir(worldDir)
@@ -66,6 +66,21 @@ fastify.register(multipart, {
 fastify.register(ws)
 fastify.register(worldNetwork)
 
+const publicEnvs = {}
+for (const key in process.env) {
+  if (key.startsWith('PUBLIC_')) {
+    const value = process.env[key]
+    publicEnvs[key] = value
+  }
+}
+const envsCode = `
+  if (!globalThis.process) globalThis.process = {}
+  globalThis.process.env = ${JSON.stringify(publicEnvs)}
+`
+fastify.get('/env.js', async (req, reply) => {
+  reply.type('application/javascript').send(envsCode)
+})
+
 fastify.post('/api/upload', async (req, reply) => {
   // console.log('DEBUG: slow uploads')
   // await new Promise(resolve => setTimeout(resolve, 2000))
@@ -103,7 +118,32 @@ fastify.get('/health', async (request, reply) => {
     console.error('Health check failed:', error)
     return reply.code(503).send({
       status: 'error',
-      timestamp: new Date().toISOString()
+      timestamp: new Date().toISOString(),
+    })
+  }
+})
+
+fastify.get('/status', async (request, reply) => {
+  try {
+    const status = {
+      uptime: Math.round(world.time),
+      protected: process.env.ADMIN_CODE !== undefined ? true : false,
+      connectedUsers: []
+    }
+    for (const socket of world.network.sockets.values()) {  
+      status.connectedUsers.push({
+        id: socket.player.data.user.id,
+        position: socket.player.position.current.toArray(),
+        name: socket.player.data.user.name
+      })
+    }
+    
+    return reply.code(200).send(status)
+  } catch (error) {
+    console.error('Status failed:', error)
+    return reply.code(503).send({
+      status: 'error',
+      timestamp: new Date().toISOString(),
     })
   }
 })

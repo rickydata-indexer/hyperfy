@@ -28,7 +28,13 @@ export class ClientLoader extends System {
   }
 
   start() {
-    // ...
+    this.vrmHooks = {
+      camera: this.world.camera,
+      scene: this.world.stage.scene,
+      octree: this.world.stage.octree,
+      setupMaterial: this.world.setupMaterial,
+      loader: this.world.loader,
+    }
   }
 
   has(type, url) {
@@ -41,7 +47,18 @@ export class ClientLoader extends System {
     return this.results.get(key)
   }
 
-  load(type, url) {
+  preload(items) {
+    const promises = items.map(item => this.load(item.type, item.url))
+    this.preloader = Promise.allSettled(promises).then(() => {
+      this.preloader = null
+      this.world.emit('ready', true)
+    })
+  }
+
+  async load(type, url) {
+    if (this.preloader) {
+      await this.preloader
+    }
     const key = `${type}/${url}`
     if (this.promises.has(key)) {
       return this.promises.get(key)
@@ -54,53 +71,66 @@ export class ClientLoader extends System {
         return texture
       })
     }
-    if (type === 'tex') {
+    if (type === 'texture') {
       promise = this.texLoader.loadAsync(url).then(texture => {
         this.results.set(key, texture)
         return texture
       })
     }
-    if (type === 'glb') {
+    if (type === 'model') {
       promise = this.gltfLoader.loadAsync(url).then(glb => {
-        let node
-        glb.toNodes = () => {
-          if (!node) {
-            node = glbToNodes(glb, this.world)
-          }
-          return node.clone(true)
+        const node = glbToNodes(glb, this.world)
+        const model = {
+          toNodes() {
+            return node.clone(true)
+          },
         }
-        this.results.set(key, glb)
-        return glb
-      })
-    }
-    if (type === 'vrm') {
-      promise = this.gltfLoader.loadAsync(url).then(glb => {
-        const factory = createVRMFactory(glb, this.world)
-        glb.toNodes = () => {
-          return createNode({
-            name: 'vrm',
-            factory,
-          })
-        }
-        this.results.set(key, glb)
-        return glb
+        this.results.set(key, model)
+        return model
       })
     }
     if (type === 'emote') {
       promise = this.gltfLoader.loadAsync(url).then(glb => {
         const factory = createEmoteFactory(glb, url)
-        glb.toClip = factory.toClip
-        this.results.set(key, glb)
-        return glb
+        const emote = {
+          toClip(options) {
+            return factory.toClip(options)
+          },
+        }
+        this.results.set(key, emote)
+        return emote
+      })
+    }
+    if (type === 'avatar') {
+      promise = this.gltfLoader.loadAsync(url).then(glb => {
+        const factory = createVRMFactory(glb, this.world.setupMaterial)
+        const node = createNode({ name: 'group' })
+        const node2 = createNode({ id: 'avatar', name: 'avatar', factory, hooks: this.vrmHooks })
+        node.add(node2)
+        const avatar = {
+          toNodes(customHooks) {
+            const clone = node.clone(true)
+            if (customHooks) {
+              clone.get('avatar').hooks = customHooks
+            }
+            return clone
+          },
+        }
+        this.results.set(key, avatar)
+        return avatar
       })
     }
     if (type === 'script') {
       promise = new Promise(async (resolve, reject) => {
-        const resp = await fetch(url)
-        const code = await resp.text()
-        const script = this.world.scripts.evaluate(code)
-        this.results.set(key, script)
-        resolve(script)
+        try {
+          const resp = await fetch(url)
+          const code = await resp.text()
+          const script = this.world.scripts.evaluate(code)
+          this.results.set(key, script)
+          resolve(script)
+        } catch (err) {
+          reject(err)
+        }
       })
     }
     this.promises.set(key, promise)
@@ -111,25 +141,71 @@ export class ClientLoader extends System {
     const key = `${type}/${url}`
     const localUrl = URL.createObjectURL(file)
     let promise
-    if (type === 'glb') {
+    if (type === 'hdr') {
+      promise = this.rgbeLoader.loadAsync(localUrl).then(texture => {
+        this.results.set(key, texture)
+        return texture
+      })
+    }
+    if (type === 'texture') {
+      promise = this.texLoader.loadAsync(localUrl).then(texture => {
+        this.results.set(key, texture)
+        return texture
+      })
+    }
+    if (type === 'model') {
       promise = this.gltfLoader.loadAsync(localUrl).then(glb => {
-        let node
-        glb.toNodes = () => {
-          if (!node) {
-            node = glbToNodes(glb, this.world)
-          }
-          return node.clone(true)
+        const node = glbToNodes(glb, this.world)
+        const model = {
+          toNodes() {
+            return node.clone(true)
+          },
         }
-        this.results.set(key, glb)
-        return glb
+        this.results.set(key, model)
+        return model
+      })
+    }
+    if (type === 'emote') {
+      promise = this.gltfLoader.loadAsync(localUrl).then(glb => {
+        const factory = createEmoteFactory(glb, url)
+        const emote = {
+          toClip(options) {
+            return factory.toClip(options)
+          },
+        }
+        this.results.set(key, emote)
+        return emote
+      })
+    }
+    if (type === 'avatar') {
+      promise = this.gltfLoader.loadAsync(localUrl).then(glb => {
+        const factory = createVRMFactory(glb, this.world.setupMaterial)
+        const node = createNode({ name: 'group' })
+        const node2 = createNode({ id: 'avatar', name: 'avatar', factory, hooks: this.vrmHooks })
+        node.add(node2)
+        const avatar = {
+          toNodes(customHooks) {
+            const clone = node.clone(true)
+            if (customHooks) {
+              clone.get('avatar').hooks = customHooks
+            }
+            return clone
+          },
+        }
+        this.results.set(key, avatar)
+        return avatar
       })
     }
     if (type === 'script') {
       promise = new Promise(async (resolve, reject) => {
-        const code = await file.text()
-        const script = this.world.scripts.evaluate(code)
-        this.results.set(key, script)
-        resolve(script)
+        try {
+          const code = await file.text()
+          const script = this.world.scripts.evaluate(code)
+          this.results.set(key, script)
+          resolve(script)
+        } catch (err) {
+          reject(err)
+        }
       })
     }
     this.promises.set(key, promise)

@@ -10,6 +10,7 @@ import { ClientEnvironment } from './systems/ClientEnvironment'
 import { ClientStats } from './systems/ClientStats'
 import { ClientEditor } from './systems/ClientEditor'
 import { ClientActions } from './systems/ClientActions'
+import { Nametags } from './systems/Nametags'
 
 export function createClientWorld() {
   const world = new World()
@@ -23,5 +24,6 @@ export function createClientWorld() {
   world.register('editor', ClientEditor)
   world.register('actions', ClientActions)
   world.register('solana', Solana)
+  world.register('nametags', Nametags)
   return world
 }

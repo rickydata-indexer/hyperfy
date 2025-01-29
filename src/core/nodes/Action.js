@@ -57,7 +57,7 @@ export class Action extends Node {
   getProxy() {
     var self = this
     if (!this.proxy) {
-      const proxy = {
+      let proxy = {
         get label() {
           return self.label
         },
@@ -94,8 +94,8 @@ export class Action extends Node {
         set onCancel(value) {
           self.onCancel = value
         },
-        ...super.getProxy(),
       }
+      proxy = Object.defineProperties(proxy, Object.getOwnPropertyDescriptors(super.getProxy())) // inherit Node properties
       this.proxy = proxy
     }
     return this.proxy

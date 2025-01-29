@@ -34,7 +34,7 @@ export function CodePane({ entity, onClose }) {
     // broadcast blueprint change to server + other clients
     world.network.send('blueprintModified', { id: blueprint.id, version, script: url })
   }
-  usePane('code', paneRef, headRef)
+  usePane('code', paneRef, headRef, true)
   useEffect(() => {
     let dead
     load().then(monaco => {
