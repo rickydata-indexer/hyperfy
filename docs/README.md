@@ -4,7 +4,6 @@ Welcome to the Hyperfy documentation! This guide provides comprehensive informat
 
 ## Getting Started
 
-- [Scripting Guide](HyperfyScriptingGuide.md) - Learn how to create scripts in Hyperfy
 - [Components List](ComponentsList.md) - Overview of all available components
 
 ## Core Systems
@@ -64,6 +63,9 @@ Welcome to the Hyperfy documentation! This guide provides comprehensive informat
 - [Chat](ref/Chat.md) - Chat system
 - [Events](ref/Events.md) - Event system
 
+### Scripting
+- [Scripting Guide](HyperfyScriptingGuide.md) - Learn how to create scripts in Hyperfy
+
 ## Development Workflow
 
 1. **Project Setup**
@@ -77,21 +79,21 @@ Welcome to the Hyperfy documentation! This guide provides comprehensive informat
    - Handle asset preloading
 
 3. **Scripting**
-   - Follow the scripting guide
+   - Write scripts from the UI, or use the scripting guide
    - Use appropriate lifecycle methods
    - Implement proper cleanup
 
-4. **Networking**
+5. **Networking**
    - Handle client/server communication
    - Synchronize state
    - Validate data
 
-5. **UI Development**
+6. **UI Development**
    - Use flexbox layouts
    - Handle responsiveness
    - Implement interactions
 
-6. **Testing & Optimization**
+7. **Testing & Optimization**
    - Use ClientStats for monitoring
    - Optimize performance
    - Test across devices
@@ -146,12 +148,5 @@ When contributing to the documentation:
 4. Provide best practices and common patterns
 5. Keep examples concise but informative
 
-## Support
-
-For additional support:
-- Review the scripting guide
-- Check component documentation
-- Examine example implementations
-- Follow best practices
 
 Remember to consult individual component documentation for detailed APIs and usage examples.
