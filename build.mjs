@@ -49,17 +49,25 @@ const clientHtmlDest = path.join(rootDir, 'build/public/index.html')
         name: 'client-finalize-plugin',
         setup(build) {
           build.onEnd(async result => {
-            // copy over public files
-            await fs.copy(clientPublicDir, clientBuildDir)
-            // find js output file
-            const metafile = result.metafile
-            const outputFiles = Object.keys(metafile.outputs)
-            const jsFile = outputFiles.find(file => file.endsWith('.js')).split('build/public')[1]
-            // inject into html and copy over
-            let htmlContent = await fs.readFile(clientHtmlSrc, 'utf-8')
-            htmlContent = htmlContent.replace('{jsFile}', jsFile)
-            htmlContent = htmlContent.replaceAll('{buildId}', Date.now())
-            await fs.writeFile(clientHtmlDest, htmlContent)
+            try {
+              // copy over public files
+              await fs.copy(clientPublicDir, clientBuildDir)
+              // find js output file
+              const metafile = result.metafile
+              const outputFiles = Object.keys(metafile.outputs)
+              const jsFile = outputFiles.find(file => file.endsWith('.js'))?.split('build/public')[1]
+              if (!jsFile) {
+                throw new Error('Could not find output JS file')
+              }
+              // inject into html and copy over
+              let htmlContent = await fs.readFile(clientHtmlSrc, 'utf-8')
+              htmlContent = htmlContent.replace('{jsFile}', jsFile)
+              htmlContent = htmlContent.replaceAll('{buildId}', Date.now())
+              await fs.writeFile(clientHtmlDest, htmlContent)
+            } catch (err) {
+              console.error('Client build error:', err)
+              if (!dev) process.exit(1)
+            }
           })
         },
       },
@@ -98,19 +106,30 @@ let spawn
         name: 'server-finalize-plugin',
         setup(build) {
           build.onEnd(async result => {
-            // make version file
-            await fs.writeFile(path.join(rootDir, 'build/version.txt'), getVersion())
-            // copy over physx wasm
-            const physxWasmSrc = path.join(rootDir, 'src/server/physx/physx-js-webidl.wasm')
-            const physxWasmDest = path.join(rootDir, 'build/physx-js-webidl.wasm')
-            await fs.copy(physxWasmSrc, physxWasmDest)
-            // start the server or stop here
-            if (dev) {
-              // (re)start server
-              spawn?.kill('SIGTERM')
-              spawn = fork(path.join(rootDir, 'build/index.js'))
-            } else {
-              process.exit(1)
+            try {
+              // make version file
+              const version = getVersion()
+              if (!version) {
+                throw new Error('Could not determine version')
+              }
+              await fs.writeFile(path.join(rootDir, 'build/version.txt'), version)
+              
+              // copy over physx wasm
+              const physxWasmSrc = path.join(rootDir, 'src/server/physx/physx-js-webidl.wasm')
+              const physxWasmDest = path.join(rootDir, 'build/physx-js-webidl.wasm')
+              await fs.copy(physxWasmSrc, physxWasmDest)
+              
+              // start the server or stop here
+              if (dev) {
+                // (re)start server
+                spawn?.kill('SIGTERM')
+                spawn = fork(path.join(rootDir, 'build/index.js'))
+              } else {
+                process.exit(0) // Exit with success code for production builds
+              }
+            } catch (err) {
+              console.error('Server build error:', err)
+              if (!dev) process.exit(1)
             }
           })
         },
@@ -144,6 +163,6 @@ export function getVersion() {
     return version
   } catch (error) {
     console.error('error getting version:', error)
-    return null
+    return '0.0.0-dev' // Fallback version if we can't get it from git/package.json
   }
 }
