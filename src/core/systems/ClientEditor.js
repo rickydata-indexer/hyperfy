@@ -99,10 +99,11 @@ export class ClientEditor extends System {
       const roles = this.world.entities.player.data.user.roles
       const isAdmin = hasRole(roles, 'admin')
       const isBuilder = hasRole(roles, 'builder')
+      const isPublic = entity.blueprint.public
       context.actions.push({
         label: 'Inspect',
         icon: EyeIcon,
-        visible: isAdmin || isBuilder,
+        visible: isAdmin || isBuilder || isPublic,
         disabled: false,
         onClick: () => {
           this.setContext(null)
@@ -191,6 +192,9 @@ export class ClientEditor extends System {
             script: entity.blueprint.script,
             props: cloneDeep(entity.blueprint.props),
             preload: entity.blueprint.preload,
+            public: entity.blueprint.public,
+            locked: entity.blueprint.locked,
+            frozen: entity.blueprint.frozen,
           }
           this.world.blueprints.add(blueprint, true)
           // assign new blueprint
@@ -312,6 +316,9 @@ export class ClientEditor extends System {
       script: info.blueprint.script,
       props: info.blueprint.props,
       preload: info.blueprint.preload,
+      public: info.blueprint.public,
+      locked: info.blueprint.locked,
+      frozen: info.blueprint.frozen,
     }
     this.world.blueprints.add(blueprint, true)
     const hit = this.world.stage.raycastPointer(this.control.pointer.position)[0]
@@ -357,6 +364,8 @@ export class ClientEditor extends System {
       script: null,
       props: {},
       preload: false,
+      public: false,
+      locked: false,
     }
     // register blueprint
     this.world.blueprints.add(blueprint, true)
@@ -407,6 +416,8 @@ export class ClientEditor extends System {
           script: null,
           props: {},
           preload: false,
+          public: false,
+          locked: false,
         }
         // register blueprint
         this.world.blueprints.add(blueprint, true)
