@@ -5,7 +5,7 @@ import { System } from './System'
 import { hashFile } from '../utils-client'
 import { hasRole, uuid } from '../utils'
 import { ControlPriorities } from '../extras/ControlPriorities'
-import { CopyIcon, EyeIcon, HandIcon, Trash2Icon, UnlinkIcon } from 'lucide-react'
+import { CopyIcon, EyeIcon, HandIcon, Trash2Icon, UnlinkIcon, Move3dIcon, RotateCwIcon, MaximizeIcon } from 'lucide-react'
 import { cloneDeep } from 'lodash-es'
 import moment from 'moment'
 import { importApp, isAppCompatible } from '../extras/appTools'
@@ -110,13 +110,50 @@ export class ClientEditor extends System {
         },
       })
       context.actions.push({
-        label: 'Move',
-        icon: HandIcon,
+        label: 'Transform',
+        icon: Move3dIcon,
         visible: isAdmin || isBuilder,
         disabled: false,
         onClick: () => {
-          this.setContext(null)
-          entity.move()
+          // Show transform context wheel
+          const transformContext = {
+            id: uuid(),
+            x: this.world.controls.pointer.position.x,
+            y: this.world.controls.pointer.position.y,
+            actions: [
+              {
+                label: 'Move',
+                icon: HandIcon,
+                visible: true,
+                disabled: false,
+                onClick: () => {
+                  this.setContext(null)
+                  entity.move()
+                }
+              },
+              {
+                label: 'Rotate',
+                icon: RotateCwIcon,
+                visible: true,
+                disabled: false,
+                onClick: () => {
+                  this.setContext(null)
+                  entity.rotate()
+                }
+              },
+              {
+                label: 'Scale',
+                icon: MaximizeIcon,
+                visible: true,
+                disabled: false,
+                onClick: () => {
+                  this.setContext(null)
+                  entity.scale()
+                }
+              }
+            ]
+          }
+          this.setContext(transformContext)
         },
       })
       context.actions.push({

@@ -16,6 +16,8 @@ const internalEvents = ['fixedUpdate', 'updated', 'lateUpdate', 'enter', 'leave'
 const Modes = {
   ACTIVE: 'active',
   MOVING: 'moving',
+  ROTATING: 'rotating',
+  SCALING: 'scaling',
   LOADING: 'loading',
   CRASHED: 'crashed',
 }
@@ -89,13 +91,18 @@ export class App extends Entity {
     this.unbuild()
     // mode
     this.mode = Modes.ACTIVE
-    if (this.data.mover) this.mode = Modes.MOVING
+    if (this.data.mover) {
+      if (this.data.transformMode === 'rotate') this.mode = Modes.ROTATING
+      else if (this.data.transformMode === 'scale') this.mode = Modes.SCALING
+      else this.mode = Modes.MOVING
+    }
     if (this.data.uploader && this.data.uploader !== this.world.network.id) this.mode = Modes.LOADING
     // setup
     this.blueprint = blueprint
     this.root = root
     this.root.position.fromArray(this.data.position)
     this.root.quaternion.fromArray(this.data.quaternion)
+    if (this.data.scale) this.root.scale.fromArray(this.data.scale)
     // activate
     this.root.activate({ world: this.world, entity: this, physics: !this.data.mover })
     // execute script
@@ -110,8 +117,10 @@ export class App extends Entity {
         return this.crash()
       }
     }
-    // if moving we need updates
-    if (this.mode === Modes.MOVING) this.world.setHot(this, true)
+    // if transforming we need updates
+    if ([Modes.MOVING, Modes.ROTATING, Modes.SCALING].includes(this.mode)) {
+      this.world.setHot(this, true)
+    }
     // if we're the mover lets bind controls
     if (this.data.mover === this.world.network.id) {
       this.lastMoveSendTime = 0
@@ -193,51 +202,48 @@ export class App extends Entity {
   }
 
   update(delta) {
-    // if we're moving the app, handle that
+    // Handle transformations if we're the mover
     if (this.data.mover === this.world.network.id) {
-      if (this.control._lifting) {
-        // if shift is down we're raising and lowering the app
-        this.root.position.y -= this.world.controls.pointer.delta.y * delta * 0.5
-      } else {
-        // otherwise move with the cursor
-        const position = this.world.controls.pointer.position
-        const hits = this.world.stage.raycastPointer(position)
-        let hit
-        for (const _hit of hits) {
-          const entity = _hit.getEntity?.()
-          // ignore self and players
-          if (entity === this || entity?.isPlayer) continue
-          hit = _hit
-          break
-        }
-        if (hit) {
-          this.root.position.copy(hit.point)
-        }
-        // and rotate with the mouse wheel
-        this.root.rotation.y += this.control.scroll.delta * 0.1 * delta
+      if (this.mode === Modes.MOVING) {
+        this.handleMove(delta)
+      } else if (this.mode === Modes.ROTATING) {
+        this.handleRotate(delta)
+      } else if (this.mode === Modes.SCALING) {
+        this.handleScale(delta)
       }
 
-      // periodically send updates
+      // Periodically send updates
       this.lastMoveSendTime += delta
       if (this.lastMoveSendTime > this.world.networkRate) {
-        this.world.network.send('entityModified', {
+        const update = {
           id: this.data.id,
           position: this.root.position.toArray(),
           quaternion: this.root.quaternion.toArray(),
-        })
+        }
+        if (this.mode === Modes.SCALING) {
+          update.scale = this.root.scale.toArray()
+        }
+        this.world.network.send('entityModified', update)
         this.lastMoveSendTime = 0
       }
-      // if we left clicked, we can place the app
+
+      // If we left clicked, place the app
       if (this.control.pressed.MouseLeft) {
         this.data.mover = null
         this.data.position = this.root.position.toArray()
         this.data.quaternion = this.root.quaternion.toArray()
+        if (this.mode === Modes.SCALING) {
+          this.data.scale = this.root.scale.toArray()
+        }
+        this.data.transformMode = null
         this.data.state = {}
         this.world.network.send('entityModified', {
           id: this.data.id,
           mover: null,
           position: this.data.position,
           quaternion: this.data.quaternion,
+          scale: this.data.scale,
+          transformMode: null,
           state: this.data.state,
         })
         this.build()
@@ -258,6 +264,57 @@ export class App extends Entity {
         this.crash()
         return
       }
+    }
+  }
+
+  handleMove(delta) {
+    if (this.control._lifting) {
+      // If shift is down we're raising and lowering the app
+      this.root.position.y -= this.world.controls.pointer.delta.y * delta * 0.5
+    } else {
+      // Otherwise move with the cursor
+      const position = this.world.controls.pointer.position
+      const hits = this.world.stage.raycastPointer(position)
+      let hit
+      for (const _hit of hits) {
+        const entity = _hit.getEntity?.()
+        // Ignore self and players
+        if (entity === this || entity?.isPlayer) continue
+        hit = _hit
+        break
+      }
+      if (hit) {
+        this.root.position.copy(hit.point)
+      }
+    }
+  }
+
+  handleRotate(delta) {
+    // Use mouse X movement for Y-axis rotation
+    const rotationSpeed = 2.0
+    this.root.rotation.y += this.world.controls.pointer.delta.x * delta * rotationSpeed
+
+    // Use shift + mouse Y movement for X-axis rotation
+    if (this.control._lifting) {
+      this.root.rotation.x += this.world.controls.pointer.delta.y * delta * rotationSpeed
+    }
+  }
+
+  handleScale(delta) {
+    const scaleSpeed = 1.0
+    if (this.control._lifting) {
+      // Uniform scaling with shift
+      const scaleDelta = -this.world.controls.pointer.delta.y * delta * scaleSpeed
+      this.root.scale.addScalar(scaleDelta)
+      // Clamp scale to reasonable values
+      this.root.scale.clampScalar(0.1, 10)
+    } else {
+      // Non-uniform scaling without shift
+      this.root.scale.x += this.world.controls.pointer.delta.x * delta * scaleSpeed
+      this.root.scale.y += -this.world.controls.pointer.delta.y * delta * scaleSpeed
+      // Clamp individual axis scales
+      this.root.scale.x = THREE.MathUtils.clamp(this.root.scale.x, 0.1, 10)
+      this.root.scale.y = THREE.MathUtils.clamp(this.root.scale.y, 0.1, 10)
     }
   }
 
@@ -293,6 +350,10 @@ export class App extends Entity {
       this.data.mover = data.mover
       rebuild = true
     }
+    if (data.hasOwnProperty('transformMode')) {
+      this.data.transformMode = data.transformMode
+      rebuild = true
+    }
     if (data.hasOwnProperty('position')) {
       this.data.position = data.position
       this.networkPos.pushArray(data.position)
@@ -300,6 +361,9 @@ export class App extends Entity {
     if (data.hasOwnProperty('quaternion')) {
       this.data.quaternion = data.quaternion
       this.networkQuat.pushArray(data.quaternion)
+    }
+    if (data.hasOwnProperty('scale')) {
+      this.data.scale = data.scale
     }
     if (data.hasOwnProperty('state')) {
       this.data.state = data.state
@@ -312,8 +376,35 @@ export class App extends Entity {
 
   move() {
     this.data.mover = this.world.network.id
+    this.data.transformMode = 'move'
     this.build()
-    this.world.network.send('entityModified', { id: this.data.id, mover: this.data.mover })
+    this.world.network.send('entityModified', { 
+      id: this.data.id, 
+      mover: this.data.mover,
+      transformMode: this.data.transformMode 
+    })
+  }
+
+  rotate() {
+    this.data.mover = this.world.network.id
+    this.data.transformMode = 'rotate'
+    this.build()
+    this.world.network.send('entityModified', { 
+      id: this.data.id, 
+      mover: this.data.mover,
+      transformMode: this.data.transformMode 
+    })
+  }
+
+  scale() {
+    this.data.mover = this.world.network.id
+    this.data.transformMode = 'scale'
+    this.build()
+    this.world.network.send('entityModified', { 
+      id: this.data.id, 
+      mover: this.data.mover,
+      transformMode: this.data.transformMode 
+    })
   }
 
   crash() {
