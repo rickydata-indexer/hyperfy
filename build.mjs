@@ -146,23 +146,33 @@ let spawn
 
 export function getVersion() {
   try {
-    // get version from package.json
-    const packageJson = JSON.parse(fs.readFileSync('./package.json', 'utf8'))
-    let version = packageJson.version
-    // check if there are unstaged changes
-    const hasUnstagedChanges = execSync('git status --porcelain').toString().length > 0
-    // check if we're on main branch
-    const currentBranch = execSync('git rev-parse --abbrev-ref HEAD', {
-      encoding: 'utf8',
-    }).trim()
-    const isMainBranch = currentBranch === 'main'
-    // append -dev if either condition is true
-    if (hasUnstagedChanges || !isMainBranch) {
-      version += '-dev'
+    const packageJson = JSON.parse(fs.readFileSync('./package.json', 'utf8'));
+    let version = packageJson.version;
+
+    let hasUnstagedChanges = false;
+    let isMainBranch = false;
+
+    try {
+      hasUnstagedChanges = execSync('git status --porcelain', { stdio: 'pipe' }).toString().length > 0;
+    } catch {
+      console.warn('⚠️ Warning: Unable to check for unstaged changes.');
     }
-    return version
+
+    try {
+      const currentBranch = execSync('git rev-parse --abbrev-ref HEAD', { encoding: 'utf8', stdio: 'pipe' }).trim();
+      isMainBranch = currentBranch === 'main';
+    } catch {
+      console.warn('⚠️ Warning: Unable to determine current Git branch.');
+    }
+
+    if (hasUnstagedChanges || !isMainBranch) {
+      version += '-dev';
+    }
+
+    return version;
   } catch (error) {
-    console.error('error getting version:', error)
-    return '0.0.0-dev' // Fallback version if we can't get it from git/package.json
+    console.error('⚠️ Error getting version. Using fallback version:', error);
+    return 'unknown';
   }
 }
+
