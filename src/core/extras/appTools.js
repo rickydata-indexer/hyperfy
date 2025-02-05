@@ -1,8 +1,4 @@
-import { cloneDeep } from 'lodash-es'
-
 export async function exportApp(blueprint, resolveFile) {
-  blueprint = cloneDeep(blueprint)
-
   // get all asset urls
   const assets = []
   if (blueprint.model) {
@@ -30,12 +26,6 @@ export async function exportApp(blueprint, resolveFile) {
     }
   }
 
-  if (blueprint.locked) {
-    blueprint.frozen = true
-  }
-
-  const filename = `${blueprint.name || 'app'}.hyp`
-
   // create header
   const header = {
     version: process.env.PUBLIC_VERSION,
@@ -61,7 +51,7 @@ export async function exportApp(blueprint, resolveFile) {
   const fileBlobs = await Promise.all(assets.map(asset => asset.file.arrayBuffer()))
 
   // create final blob with header size + header + files
-  const file = new File([headerSize, headerBytes, ...fileBlobs], filename, {
+  const file = new File([headerSize, headerBytes, ...fileBlobs], `app.hyp`, {
     type: 'application/octet-stream',
   })
 
