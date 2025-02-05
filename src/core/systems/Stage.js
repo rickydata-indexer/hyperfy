@@ -74,12 +74,35 @@ export class Stage extends System {
   }
 
   insertLinked({ geometry, material, castShadow, receiveShadow, node, matrix }) {
+    // Add validation
+    if (!geometry?.uuid || !material?.uuid) {
+      console.warn('Stage: Invalid geometry or material in insertLinked')
+      return null
+    }
+
     const id = `${geometry.uuid}/${material.uuid}/${castShadow}/${receiveShadow}`
     if (!this.models.has(id)) {
-      const model = new Model(this, geometry, material, castShadow, receiveShadow)
-      this.models.set(id, model)
+      try {
+        const model = new Model(this, geometry, material, castShadow, receiveShadow)
+        this.models.set(id, model)
+      } catch (err) {
+        console.warn('Stage: Failed to create model:', err)
+        return null
+      }
     }
-    return this.models.get(id).create(node, matrix)
+
+    const model = this.models.get(id)
+    if (!model) {
+      console.warn('Stage: Failed to get model for id:', id)
+      return null
+    }
+
+    try {
+      return model.create(node, matrix)
+    } catch (err) {
+      console.warn('Stage: Failed to create instance:', err)
+      return null
+    }
   }
 
   insertSingle({ geometry, material, castShadow, receiveShadow, node, matrix }) {
@@ -116,45 +139,47 @@ export class Stage extends System {
     const self = this
     const material = {}
     let raw
-    if (options.raw) {
-      raw = options.raw.clone()
-    } else if (options.unlit) {
-      raw = new THREE.MeshBasicMaterial({
-        color: options.color || 'white',
-      })
-    } else {
-      raw = new THREE.MeshStandardMaterial({
-        color: options.color || 'white',
-        metalness: isNumber(options.metalness) ? options.metalness : 0,
-        roughness: isNumber(options.roughness) ? options.roughness : 1,
-      })
+    try {
+      if (options.raw) {
+        raw = options.raw.clone()
+      } else if (options.unlit) {
+        raw = new THREE.MeshBasicMaterial({
+          color: options.color || 'white',
+        })
+      } else {
+        raw = new THREE.MeshStandardMaterial({
+          color: options.color || 'white',
+          metalness: isNumber(options.metalness) ? options.metalness : 0,
+          roughness: isNumber(options.roughness) ? options.roughness : 1,
+        })
+      }
+    } catch (err) {
+      console.warn('Stage: Failed to create material:', err)
+      raw = new THREE.MeshBasicMaterial({ color: 'magenta' }) // Fallback material
     }
     raw.shadowSide = THREE.BackSide // fix csm shadow banding
     const textures = []
-    if (raw.map) {
-      raw.map = raw.map.clone()
-      textures.push(raw.map)
+    
+    // Safely clone textures
+    const cloneTexture = (tex) => {
+      if (!tex) return null
+      try {
+        const cloned = tex.clone()
+        textures.push(cloned)
+        return cloned
+      } catch (err) {
+        console.warn('Stage: Failed to clone texture:', err)
+        return null
+      }
     }
-    if (raw.emissiveMap) {
-      raw.emissiveMap = raw.emissiveMap.clone()
-      textures.push(raw.emissiveMap)
-    }
-    if (raw.normalMap) {
-      raw.normalMap = raw.normalMap.clone()
-      textures.push(raw.normalMap)
-    }
-    if (raw.bumpMap) {
-      raw.bumpMap = raw.bumpMap.clone()
-      textures.push(raw.bumpMap)
-    }
-    if (raw.roughnessMap) {
-      raw.roughnessMap = raw.roughnessMap.clone()
-      textures.push(raw.roughnessMap)
-    }
-    if (raw.metalnessMap) {
-      raw.metalnessMap = raw.metalnessMap.clone()
-      textures.push(raw.metalnessMap)
-    }
+
+    // Handle all texture types
+    if (raw.map) raw.map = cloneTexture(raw.map)
+    if (raw.emissiveMap) raw.emissiveMap = cloneTexture(raw.emissiveMap)
+    if (raw.normalMap) raw.normalMap = cloneTexture(raw.normalMap)
+    if (raw.bumpMap) raw.bumpMap = cloneTexture(raw.bumpMap)
+    if (raw.roughnessMap) raw.roughnessMap = cloneTexture(raw.roughnessMap)
+    if (raw.metalnessMap) raw.metalnessMap = cloneTexture(raw.metalnessMap)
     this.world.setupMaterial(raw)
     const proxy = {
       get id() {

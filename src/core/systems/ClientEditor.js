@@ -5,7 +5,7 @@ import { System } from './System'
 import { hashFile } from '../utils-client'
 import { hasRole, uuid } from '../utils'
 import { ControlPriorities } from '../extras/ControlPriorities'
-import { CopyIcon, EyeIcon, HandIcon, Trash2Icon, UnlinkIcon, Move3dIcon, RotateCwIcon, MaximizeIcon } from 'lucide-react'
+import { CopyIcon, EyeIcon, HandIcon, Trash2Icon, UnlinkIcon, Move3dIcon, RotateCwIcon, MaximizeIcon, RulerIcon } from 'lucide-react'
 import { cloneDeep } from 'lodash-es'
 import moment from 'moment'
 
@@ -128,6 +128,7 @@ export class ClientEditor extends System {
                 onClick: () => {
                   this.setContext(null)
                   entity.move()
+                  this.world.emit('transform', entity)
                 }
               },
               {
@@ -138,6 +139,7 @@ export class ClientEditor extends System {
                 onClick: () => {
                   this.setContext(null)
                   entity.rotate()
+                  this.world.emit('transform', entity)
                 }
               },
               {
@@ -148,6 +150,7 @@ export class ClientEditor extends System {
                 onClick: () => {
                   this.setContext(null)
                   entity.scale()
+                  this.world.emit('transform', entity)
                 }
               }
             ]

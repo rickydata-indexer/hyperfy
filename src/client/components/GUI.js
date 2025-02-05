@@ -4,6 +4,7 @@ import { LoaderIcon, MessageCircleMoreIcon, UnplugIcon, WifiOffIcon } from 'luci
 
 import { ContextWheel } from './ContextWheel'
 import { InspectPane } from './InspectPane'
+import { TransformPane } from './TransformPane'
 import { CodePane } from './CodePane'
 import { AvatarPane } from './AvatarPane'
 import { ChatBox } from './ChatBox'
@@ -30,14 +31,17 @@ function Content({ world, width, height }) {
   const [ready, setReady] = useState(false)
   const [context, setContext] = useState(null)
   const [inspect, setInspect] = useState(null)
+  const [transform, setTransform] = useState(null)
   const [code, setCode] = useState(false)
   const [chat, setChat] = useState(() => !touch)
   const [avatar, setAvatar] = useState(null)
   const [disconnected, setDisconnected] = useState(false)
+
   useEffect(() => {
     world.on('ready', setReady)
     world.on('context', setContext)
     world.on('inspect', setInspect)
+    world.on('transform', setTransform)
     world.on('code', setCode)
     world.on('avatar', setAvatar)
     world.on('disconnect', setDisconnected)
@@ -45,11 +49,13 @@ function Content({ world, width, height }) {
       world.off('ready', setReady)
       world.off('context', setContext)
       world.off('inspect', setInspect)
+      world.off('transform', setTransform)
       world.off('code', setCode)
       world.off('avatar', setAvatar)
       world.off('disconnect', setDisconnected)
     }
   }, [])
+
   return (
     <>
       {!chat && (
@@ -82,6 +88,7 @@ function Content({ world, width, height }) {
       )}
       {context && <ContextWheel key={context.id} {...context} />}
       {inspect && <InspectPane key={`inspect-${inspect.data.id}`} world={world} entity={inspect} />}
+      {transform && <TransformPane key={`transform-${transform.data.id}`} world={world} entity={transform} />}
       {inspect && code && <CodePane key={`code-${inspect.data.id}`} world={world} entity={inspect} />}
       {avatar && <AvatarPane key={avatar.hash} world={world} info={avatar} />}
       {disconnected && <Disconnected />}
